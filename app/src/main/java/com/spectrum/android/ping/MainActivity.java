@@ -25,11 +25,17 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.TextView;
+import android.widget.ViewFlipper;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -38,6 +44,8 @@ import java.net.UnknownHostException;
 public class MainActivity extends Activity {
     private TextView mLog;
     private PingRunnable mPingRunnable;
+
+    private int mPingMethod;
 
     public static Network getNetwork(final Context context, final int transport) {
         final ConnectivityManager connManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -53,36 +61,116 @@ public class MainActivity extends Activity {
         return null;
     }
 
+
+
+    private boolean executeCommand(EditText address) {
+        Runtime runtime = Runtime.getRuntime();
+        try {
+            Process ipProcess = runtime.exec("/system/bin/ping -c 1 -t 5 -W 3 " + address.getText());
+            BufferedReader stdInput = new BufferedReader(new
+                    InputStreamReader(ipProcess.getInputStream()));
+            BufferedReader stdError = new BufferedReader(new
+                    InputStreamReader(ipProcess.getErrorStream()));
+
+            String rsMsg = "";
+            String s = null;
+            while ((s = stdInput.readLine()) != null) {
+                rsMsg = rsMsg + s + "\n";
+                System.out.println(s);
+            }
+            while ((s = stdError.readLine()) != null) {
+                rsMsg = rsMsg + "ERROR: " + s + "\n";
+            }
+            TextView pingRs = findViewById(R.id.runtimeRs);
+            pingRs.setText(rsMsg);
+            int exitValue = ipProcess.waitFor();
+            ipProcess.destroy();
+            return (exitValue == 0);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        mLog = findViewById(R.id.log);
+        mLog = findViewById(R.id.extRs);
         final EditText address = findViewById(R.id.address);
         final CheckBox wifi = findViewById(R.id.wifi);
         final RadioGroup ipRadioGroup = findViewById(R.id.ipGroup);
 
-        findViewById(R.id.ping).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(final View view) {
-                if (mPingRunnable != null) {
-                    mPingRunnable.cancel();
-                }
+        final ViewFlipper vf = findViewById(R.id.vf);
+        final RadioGroup methodGroup = findViewById(R.id.methodGroup);
+        final EditText count = findViewById(R.id.countOfPing);
 
-                final Class<? extends InetAddress> inetClass;
-                final int radioId = ipRadioGroup.getCheckedRadioButtonId();
-                if (radioId == R.id.ipv6) {
-                    inetClass = Inet6Address.class;
-                } else if (radioId == R.id.ipv4) {
-                    inetClass = Inet4Address.class;
-                } else {
-                    inetClass = InetAddress.class;
+
+        mPingMethod = methodGroup.getCheckedRadioButtonId();
+
+        methodGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(RadioGroup radioGroup, int i) {
+                if (i == R.id.externalLib) {
+                    vf.setDisplayedChild(0);
+                } else if (i == R.id.runtimeJava) {
+                    vf.setDisplayedChild(1);
                 }
-                AsyncTask.SERIAL_EXECUTOR.execute(mPingRunnable =
-                        new PingRunnable(address.getText().toString(), wifi.isChecked(), inetClass));
+                mPingMethod = i;
             }
         });
 
+
+        findViewById(R.id.ping).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(final View view) {
+                if (mPingMethod == R.id.externalLib) {
+                    emitExtLib(ipRadioGroup, address, wifi);
+                } else {
+                    String c = count.getText().toString();
+                    executeCommand(address);
+                }
+            }
+        });
+
+    }
+
+    private void pingCommand(int count, EditText address) {
+        final TextView pingRs = findViewById(R.id.runtimeRs);
+        long sum = 0;
+        for (int i = 0; i < count; i++) {
+            long start = (System.currentTimeMillis() % 100000);
+            executeCommand(address);
+            long end = (System.currentTimeMillis() % 100000);
+
+            if (end <= start) {
+                sum = sum + ((100000 - start) + end);
+            } else {
+                sum = sum + (end - start);
+            }
+        }
+        Long l = new Long(sum);
+        pingRs.setText("Average Time for Ping is " + (l.doubleValue() / count) + " ms");
+    }
+
+    public void emitExtLib(RadioGroup ipRadioGroup, EditText address, CheckBox wifi) {
+        if (mPingRunnable != null) {
+            mPingRunnable.cancel();
+        }
+
+        final Class<? extends InetAddress> inetClass;
+        final int radioId = ipRadioGroup.getCheckedRadioButtonId();
+        if (radioId == R.id.ipv6) {
+            inetClass = Inet6Address.class;
+        } else if (radioId == R.id.ipv4) {
+            inetClass = Inet4Address.class;
+        } else {
+            inetClass = InetAddress.class;
+        }
+        AsyncTask.SERIAL_EXECUTOR.execute(mPingRunnable =
+                new PingRunnable(address.getText().toString(), wifi.isChecked(), inetClass));
     }
 
     /**

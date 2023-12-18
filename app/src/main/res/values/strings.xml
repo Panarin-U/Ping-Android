@@ -8,4 +8,8 @@
     <string name="results">Results:</string>
     <string name="ping">Ping</string>
     <string name="ipVersion">IP Version</string>
+    <string name="pingMethod">Ping Method</string>
+    <string name="runtimeJava">Runtime Java</string>
+    <string name="externalLib">External Library</string>
+
 </resources>
